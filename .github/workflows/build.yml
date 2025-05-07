@@ -1,0 +1,58 @@
+name: Build for Raspberry Pi
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allows manual triggering from GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        # Build for multiple Raspberry Pi architectures
+        include:
+          - name: raspberry-pi-3-4
+            GOOS: linux
+            GOARCH: arm64
+            filename: oledmonitor-arm64
+          - name: raspberry-pi-zero-2
+            GOOS: linux
+            GOARCH: arm
+            GOARM: 7
+            filename: oledmonitor-armv7
+          - name: raspberry-pi-1-zero
+            GOOS: linux
+            GOARCH: arm
+            GOARM: 6
+            filename: oledmonitor-armv6
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'  # Adjust version as needed
+
+    - name: Get dependencies
+      run: go mod tidy
+
+    - name: Build
+      env:
+        GOOS: ${{ matrix.GOOS }}
+        GOARCH: ${{ matrix.GOARCH }}
+        GOARM: ${{ matrix.GOARM }}
+      run: |
+        echo "Building for ${{ matrix.name }} (GOOS=${{ matrix.GOOS }} GOARCH=${{ matrix.GOARCH }} GOARM=${{ matrix.GOARM }})"
+        go build -v -o ${{ matrix.filename }} ./cmd/oledmonitor
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.filename }}
+        path: ${{ matrix.filename }}
+        retention-days: 30
