@@ -1,4 +1,4 @@
-module github.com/snehithgit/oledmonitor
+module github.com/snehithgit/pi_oled_info
 
 go 1.18
 
