@@ -7,11 +7,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourusername/oledmonitor/internal/display"
-	"github.com/yourusername/oledmonitor/internal/sysinfo/cpu"
-	"github.com/yourusername/oledmonitor/internal/sysinfo/disk"
-	"github.com/yourusername/oledmonitor/internal/sysinfo/ipaddr"
-	"github.com/yourusername/oledmonitor/internal/sysinfo/uptime"
+	"github.com/snehithgit/pi_oled_info/internal/display"
+	"github.com/snehithgit/pi_oled_info/internal/sysinfo/cpu"
+	"github.com/snehithgit/pi_oled_infor/internal/sysinfo/disk"
+	"github.com/snehithgit/pi_oled_info/internal/sysinfo/ipaddr"
+	"github.com/snehithgit/pi_oled_info/internal/sysinfo/uptime"
 )
 
 func main() {
