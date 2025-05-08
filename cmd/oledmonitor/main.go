@@ -9,7 +9,7 @@ import (
 
 	"github.com/snehithgit/pi_oled_info/internal/display"
 	"github.com/snehithgit/pi_oled_info/internal/sysinfo/cpu"
-	"github.com/snehithgit/pi_oled_infor/internal/sysinfo/disk"
+	"github.com/snehithgit/pi_oled_info/internal/sysinfo/disk"
 	"github.com/snehithgit/pi_oled_info/internal/sysinfo/ipaddr"
 	"github.com/snehithgit/pi_oled_info/internal/sysinfo/uptime"
 )
