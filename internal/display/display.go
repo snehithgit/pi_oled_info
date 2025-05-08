@@ -2,7 +2,14 @@ package display
 
 import (
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
 	"strings"
+
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/math/fixed"
 
 	"periph.io/x/conn/v3/i2c"
 	"periph.io/x/conn/v3/i2c/i2creg"
@@ -71,12 +78,10 @@ func (d *Display) WriteLine(line int, content string) {
 
 // Clear clears all lines on the display
 func (d *Display) Clear() {
-	if d.dev != nil {
-		d.dev.Clear()
-		for i := range d.lines {
-			d.lines[i] = ""
-		}
+	for i := range d.lines {
+		d.lines[i] = ""
 	}
+	d.Update() // Redraw blank screen
 }
 
 // Update refreshes the display with current line contents
@@ -85,22 +90,31 @@ func (d *Display) Update() error {
 		return fmt.Errorf("display not initialized")
 	}
 
-	// Clear the display first
-	if err := d.dev.Clear(); err != nil {
-		return fmt.Errorf("failed to clear display: %v", err)
-	}
+	// Create a black image buffer
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.Black}, image.Point{}, draw.Src)
 
-	// Draw each line
+	// Use a basic font to draw each line
+	face := basicfont.Face7x13
 	for i, line := range d.lines {
-		if line != "" {
-			y := i * charHeight // Line position
-			if err := d.dev.DrawString(0, y, strings.TrimSpace(line), nil); err != nil {
-				return fmt.Errorf("failed to draw line %d: %v", i, err)
-			}
+		if line == "" {
+			continue
 		}
+		dot := fixed.Point26_6{
+			X: fixed.I(0),
+			Y: fixed.I((i+1)*charHeight - 3), // Adjust vertical spacing
+		}
+		drawer := &font.Drawer{
+			Dst:  img,
+			Src:  image.White,
+			Face: face,
+			Dot:  dot,
+		}
+		drawer.DrawString(strings.TrimSpace(line))
 	}
 
-	return nil
+	// Push image to OLED display
+	return d.dev.Draw(img.Bounds(), img, image.Point{})
 }
 
 // Close shuts down the display properly
