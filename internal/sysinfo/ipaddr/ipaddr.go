@@ -31,7 +31,7 @@ func Get() (string, error) {
 				ip := v.IP
 				// Skip IPv6 and loopback addresses
 				if ip.To4() != nil && !ip.IsLoopback() {
-					return fmt.Sprintf("IP: %s", ip.String()), nil
+					return fmt.Sprintf("%s", ip.String()), nil
 				}
 			}
 		}
