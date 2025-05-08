@@ -1,3 +1,5 @@
+// Updated display.go to implement anti-flicker display updates
+
 package display
 
 import (
@@ -28,9 +30,13 @@ const (
 
 // Display handles the OLED screen operations
 type Display struct {
-	dev    *ssd1306.Dev
-	lines  [maxLines]string
-	i2cBus i2c.BusCloser
+	dev           *ssd1306.Dev
+	lines         [maxLines]string
+	prevLines     [maxLines]string      // Track previous state for each line
+	charPositions [maxLines][maxChars]bool // Track which character positions changed
+	i2cBus        i2c.BusCloser
+	img           *image.RGBA // Keep a buffer of the current display state
+	initialized   bool        // Track if the display has been fully drawn once
 }
 
 // New creates and initializes a new Display
@@ -57,9 +63,15 @@ func New() (*Display, error) {
 		return nil, fmt.Errorf("failed to initialize SSD1306: %v", err)
 	}
 
+	// Create empty image buffer
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.Black}, image.Point{}, draw.Src)
+
 	return &Display{
-		dev:    dev,
-		i2cBus: bus,
+		dev:         dev,
+		i2cBus:      bus,
+		img:         img,
+		initialized: false,
 	}, nil
 }
 
@@ -69,19 +81,58 @@ func (d *Display) WriteLine(line int, content string) {
 		return
 	}
 
-	// Truncate content if needed and pad to have consistent display
+	// Truncate content if needed
 	if len(content) > maxChars {
 		content = content[:maxChars]
 	}
-	d.lines[line] = content
+	
+	// If line content has changed, update and mark characters that need redrawing
+	if content != d.lines[line] {
+		// Compare each character position to determine which ones changed
+		for i := 0; i < maxChars; i++ {
+			var prevChar, newChar byte
+			
+			if i < len(d.lines[line]) {
+				prevChar = d.lines[line][i]
+			} else {
+				prevChar = ' '
+			}
+			
+			if i < len(content) {
+				newChar = content[i]
+			} else {
+				newChar = ' '
+			}
+			
+			// Mark character position for update if character has changed
+			d.charPositions[line][i] = prevChar != newChar
+		}
+		
+		// Update the line content
+		d.lines[line] = content
+	}
 }
 
 // Clear clears all lines on the display
 func (d *Display) Clear() {
 	for i := range d.lines {
-		d.lines[i] = ""
+		if d.lines[i] != "" {
+			d.lines[i] = ""
+			// Mark all characters as needing update
+			for j := range d.charPositions[i] {
+				d.charPositions[i][j] = true
+			}
+		}
 	}
-	d.Update() // Redraw blank screen
+	
+	// Only perform a full clear if we need to
+	if d.initialized {
+		d.redrawChangedChars()
+	} else {
+		// If not initialized, do a full clear
+		draw.Draw(d.img, d.img.Bounds(), &image.Uniform{color.Black}, image.Point{}, draw.Src)
+		d.dev.Draw(d.img.Bounds(), d.img, image.Point{})
+	}
 }
 
 // Update refreshes the display with current line contents
@@ -89,10 +140,46 @@ func (d *Display) Update() error {
 	if d.dev == nil {
 		return fmt.Errorf("display not initialized")
 	}
+	
+	if !d.initialized {
+		// First time: full draw of everything
+		if err := d.fullDraw(); err != nil {
+			return err
+		}
+		d.initialized = true
+		// Save current state as previous
+		for i := range d.lines {
+			d.prevLines[i] = d.lines[i]
+		}
+		return nil
+	}
+	
+	// Check if any character has changed
+	needsUpdate := false
+	for _, line := range d.charPositions {
+		for _, changed := range line {
+			if changed {
+				needsUpdate = true
+				break
+			}
+		}
+		if needsUpdate {
+			break
+		}
+	}
+	
+	if !needsUpdate {
+		return nil // Nothing changed, no need to update
+	}
+	
+	// Update only the changed characters
+	return d.redrawChangedChars()
+}
 
+// fullDraw performs a complete redraw of the display
+func (d *Display) fullDraw() error {
 	// Create a black image buffer
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	draw.Draw(img, img.Bounds(), &image.Uniform{color.Black}, image.Point{}, draw.Src)
+	draw.Draw(d.img, d.img.Bounds(), &image.Uniform{color.Black}, image.Point{}, draw.Src)
 
 	// Use a basic font to draw each line
 	face := basicfont.Face7x13
@@ -105,7 +192,7 @@ func (d *Display) Update() error {
 			Y: fixed.I((i+1)*charHeight - 3), // Adjust vertical spacing
 		}
 		drawer := &font.Drawer{
-			Dst:  img,
+			Dst:  d.img,
 			Src:  image.White,
 			Face: face,
 			Dot:  dot,
@@ -114,7 +201,63 @@ func (d *Display) Update() error {
 	}
 
 	// Push image to OLED display
-	return d.dev.Draw(img.Bounds(), img, image.Point{})
+	return d.dev.Draw(d.img.Bounds(), d.img, image.Point{})
+}
+
+// redrawChangedChars updates only the characters that have changed
+func (d *Display) redrawChangedChars() error {
+	// Use a basic font 
+	face := basicfont.Face7x13
+	
+	// Check each position that needs updating
+	for lineIdx, line := range d.charPositions {
+		for charIdx, needsUpdate := range line {
+			if !needsUpdate {
+				continue
+			}
+			
+			// Calculate the position for this character
+			x := charIdx * charWidth
+			y := lineIdx * charHeight
+			
+			// Create a small rect for just this character
+			charRect := image.Rect(x, y, x+charWidth, y+charHeight)
+			
+			// Clear this character position
+			draw.Draw(d.img, charRect, &image.Uniform{color.Black}, image.Point{}, draw.Src)
+			
+			// If there's a character to draw at this position, draw it
+			if lineIdx < len(d.lines) && charIdx < len(d.lines[lineIdx]) {
+				char := string(d.lines[lineIdx][charIdx])
+				dot := fixed.Point26_6{
+					X: fixed.I(x),
+					Y: fixed.I(y + charHeight - 3), // Adjust vertical spacing
+				}
+				drawer := &font.Drawer{
+					Dst:  d.img,
+					Src:  image.White,
+					Face: face,
+					Dot:  dot,
+				}
+				drawer.DrawString(char)
+			}
+			
+			// Update only this part of the display
+			if err := d.dev.Draw(charRect, d.img, image.Point{X: x, Y: y}); err != nil {
+				return err
+			}
+			
+			// Mark as updated
+			d.charPositions[lineIdx][charIdx] = false
+		}
+	}
+	
+	// Save current state as previous
+	for i := range d.lines {
+		d.prevLines[i] = d.lines[i]
+	}
+	
+	return nil
 }
 
 // Close shuts down the display properly
